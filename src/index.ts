@@ -4,10 +4,11 @@ import bcrypt = require('bcrypt');
 import jwt = require('jsonwebtoken');
 import mongoose from 'mongoose';
 import { Contents, Links, Users } from './db'; 
-import GenerateLink from './utils'
-import { error } from 'console';
-
+import GenerateLink from './utils';
+import cors = require('cors');
 const app:Express = express();
+// @ts-ignore
+app.use(cors());
 app.use(express.json({ strict: false }));
 mongoose.connect('mongodb+srv://Sumit:hdW2hmE1Tp9d3Gov@cluster0.wpjvi.mongodb.net/Second-Brain-App');
 
@@ -52,7 +53,7 @@ app.post("/api/v1/Signup", async function(req:Request, res:Response): Promise<vo
       password: hashedPassword,
     });
 
-    res.status(201).json({ message: "You are signed up", user: newUser });
+    res.status(200).json({ message: "You are signed up", user: newUser });
   } catch (error) {
     res.status(500).json({ message: "Internal server error", error: error });
   }
@@ -88,19 +89,24 @@ app.post("/api/v1/Login", async function (req: Request, res: Response):Promise<v
   }
 });
 
-app.use(auth);
+// app.use(auth);
 
-app.post("/api/v1/Content",async (req: Request, res: Response) => {
+app.post("/api/v1/Content",auth,async (req: Request, res: Response) => {
   try{
     const { link, title, type } = req.body;
     // @ts-ignore
     const username = req.username;
     const user = await Users.findOne({username});
     if(!user){
-      res.json({message:"Something went wrong"})
+      res.json({message:"User not found"})
       return
     }
-    Contents.create({
+    const isExist =  await Contents.findOne({link,title,type});
+    if(isExist){
+      res.status(404).json({message:"Can not enter same entry again"});
+      return;
+    }
+    const content = await Contents.create({
       link,
       title,
       type,
@@ -108,47 +114,47 @@ app.post("/api/v1/Content",async (req: Request, res: Response) => {
       userId: user._id
     })
     
-    res.status(200).json({ message: "Content added", link, title, type });
+    res.status(200).json({ message: "Content added",link: content.link});
   }
   catch(err){
-    res.json({error:err.message});
+    res.json({message:"Something went wrong in catch function"});
     return 
   }
 });
 
-app.get("/api/v1/Content", async (req,res) => {
-try{
-  // @ts-ignore
-  const username = req.username;
-  const user = await Users.findOne({username});
-  // @ts-ignore
-  const content = await Contents.find({userId:user._id}).populate('userId','username')
-  if(content.length === 0){
-    res.json({message:"No content found"});
+app.get("/api/v1/Content",auth, async (req,res) => {
+  try{
+    // @ts-ignore
+    const username = req.username;
+    const user = await Users.findOne({username});
+    // @ts-ignore
+    const content = await Contents.find({userId:user._id})
+    if(content.length === 0){
+      res.json({message:"No content found"});
+      return
+    }
+    res.status(200).json({content });
     return
   }
-  res.status(200).json({ message: "Content fetched",content });
-
-}
-catch(err){
-  res.send(err);
-  return
-}
+  catch(err){
+    res.send(err);
+    return
+  }
 });
 
-app.delete("/api/v1/Content", async (req: Request, res: Response) => {
+app.delete("/api/v1/Content",auth, async (req: Request, res: Response) => {
 try{
   // @ts-ignore
   const username = req.username;
   const contentId = req.body.contentId;
   const user = await Users.findOne({username});
-  const deleted = await Contents.deleteMany({userId:user._id,_id:contentId});
+  const deleted = await Contents.deleteOne({userId:user._id,_id:contentId});
   // @ts-ignore
   if(deleted.length === 0){
     res.json({message:"No content found"})
     return
   }
-  res.json({message:"Content deleted"})
+  res.json({message:"Content deleted",deleted})
 }
 catch(err){
   res.json({error:err.message});  
@@ -156,7 +162,7 @@ catch(err){
 }
 });
 
-app.post("/api/v1/brain/share",async function(req:Request, res: Response){
+app.post("/api/v1/brain/share",auth,async function(req:Request, res: Response){
   try{
     const {share} = req.body;
    if(share){
@@ -190,7 +196,7 @@ app.post("/api/v1/brain/share",async function(req:Request, res: Response){
   }
 })
 
-app.get("/api/v1/brain/:shareLink", async function (req, res){
+app.get("/api/v1/brain/:shareLink",auth, async function (req, res){
   try {
     const hashLink = req.params.shareLink;
 
@@ -214,7 +220,7 @@ app.get("/api/v1/brain/:shareLink", async function (req, res){
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message || "Something went wrong"});
   }
 });
 
